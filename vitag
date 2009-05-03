@@ -1,0 +1,129 @@
+#!/bin/bash
+# vitag, Copyright (C) 2007 by Jonas Kramer.
+# Published under the terms of the GNU General Public License (GPL).
+
+if [ -z "$EDITOR" ]; then
+	echo "\$EDITOR not set." >&2
+	exit -1
+fi
+
+for PROGRAM in "vorbiscomment" "file" "mktemp" "cat" "cmp" "id3tag" "id3info"
+do
+	PROGPATH="`which "$PROGRAM" 2>"/dev/null"`"
+	if [ -z "$PROGPATH" ]; then
+		echo "$PROGRAM is not in your \$PATH." >&2
+		exit -1
+	fi
+	export $PROGRAM="$PROGPATH"
+done
+
+OVERALL="`mktemp`"
+
+for FILE in "$@"; do
+	if [ ! -f "$FILE" ]; then
+		echo "$FILE does not exist." >&2
+		continue
+	fi
+
+	TYPE="`$file "$FILE"`"
+	TYPE="${TYPE#$FILE: }"
+
+	# Determine file type (OGG Vorbis and MP3 supported).
+	if ( grep -qi "ogg" <<<"$TYPE" || grep -qi "vorbis" <<<"$TYPE" ); then
+		TYPE="OGG"
+	elif ( grep -qi "mp3" <<<"$TYPE" || grep -qi "mpeg" <<<"$TYPE" ); then
+		TYPE="MP3"
+	else
+		echo "$FILE doesn't look like a supported file." >&2
+		continue
+	fi
+
+	TAGFILE="`mktemp`"
+
+	# Get the tags.
+	if [ "$TYPE" = "OGG" ]; then
+		if ! $vorbiscomment -l "$FILE" > "$TAGFILE"; then
+			echo "Failed to get tags of file \"$FILE\"." >&2
+			continue
+		fi
+	elif [ "$TYPE" = "MP3" ]; then
+		if ! $id3info "$FILE" | grep '^===' > "$TAGFILE"; then
+			echo "Failed to get tags of file \"$FILE\"." >&2
+			continue
+		fi
+
+		sed -r -i -e 's/^=== ([^ ]+) \(.+?\): (.+)$/\1=\2/' "$TAGFILE"
+
+		# Ugly translation needed.
+		sed -i -e 's/^TRCK=/TRACKNUMBER=/' "$TAGFILE"
+		sed -i -e 's/^TPE1=/ARTIST=/' "$TAGFILE"
+		sed -i -e 's/^TIT2=/TITLE=/' "$TAGFILE"
+		sed -i -e 's/^TALB=/ALBUM=/' "$TAGFILE"
+		sed -i -e 's/^TCON=/GENRE=/' "$TAGFILE"
+	fi
+
+	# Fill up misssing tags.
+	for TAG in "TRACKNUMBER" "ARTIST" "TITLE" "ALBUM" "GENRE"; do
+		if ! grep -i -q "^$TAG=" "$TAGFILE"; then
+			echo "$TAG=" >> "$TAGFILE"
+		fi
+	done
+
+	# Store tags.
+	echo "-- $TYPE -- $FILE" >> "$OVERALL"
+	$cat "$TAGFILE" >> "$OVERALL"
+	echo "-----" >> "$OVERALL"
+
+	rm "$TAGFILE"
+done
+
+BACKUP="`mktemp`"
+cp -f "$OVERALL" "$BACKUP"
+
+$EDITOR "$OVERALL"
+
+FILE=""
+TYPE=""
+TAGFILE="`mktemp`"
+
+# Write tags back to audio files from tag file.
+if ! $cmp "$OVERALL" "$BACKUP" > "/dev/null"; then
+	while read LINE; do
+		# Head of tag block.
+		if grep -i -q "^-- " <<<"$LINE"; then
+			LINE="${LINE#-- }"
+			TYPE="${LINE% --*}"
+			FILE="${LINE#$TYPE -- }"
+
+		# End of tag block. Write tags here.
+		elif [ "$LINE" = "-----" ]; then
+			if [ "$FILE" != "" ]; then
+				if [ "$TYPE" = "OGG" ]; then
+					$vorbiscomment -w -c "$TAGFILE" "$FILE"
+				elif [ "$TYPE" = "MP3" ]; then
+					# Ugly...
+					sed -i -e 's/^TRACKNUMBER=/track=/' "$TAGFILE"
+					sed -i -e 's/^ARTIST=/artist=/' "$TAGFILE"
+					sed -i -e 's/^TITLE=/song=/' "$TAGFILE"
+					sed -i -e 's/^ALBUM=/album=/' "$TAGFILE"
+					sed -i -e 's/^GENRE=/genre=/' "$TAGFILE"
+
+					while read TAG; do
+						KEY="${TAG%=*}"
+						VALUE="${TAG#$KEY=}"
+						$id3tag "--$KEY=$VALUE" "$FILE" >"/dev/null"
+					done < "$TAGFILE"
+				fi
+			fi
+			echo -n "" > "$TAGFILE"
+		else
+			echo "$LINE" >> "$TAGFILE"
+		fi
+	done < "$OVERALL"
+else
+	echo "No tags changed." >&2
+fi
+
+rm "$OVERALL"
+rm "$TAGFILE"
+rm "$BACKUP"
