@@ -1,5 +1,5 @@
 #!/bin/bash
-# vitag, Copyright (C) 2007 by Jonas Kramer.
+# vitag, Copyright (C) 2007-2009 by Jonas Kramer.
 # Published under the terms of the GNU General Public License (GPL).
 
 if [ -z "$EDITOR" ]; then
