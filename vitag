@@ -56,7 +56,7 @@ for FILE in "$@"; do
 	# Determine file type (OGG Vorbis and MP3 supported).
 	if ( grep -qi "ogg" <<<"$TYPE" || grep -qi "vorbis" <<<"$TYPE" ); then
 		TYPE="OGG"
-	elif ( grep -qi "mp3" <<<"$TYPE" || grep -qi "mpeg" <<<"$TYPE" ); then
+	elif ( grep -qi "mp3" <<<"$TYPE" || grep -qi "mpeg" <<<"$TYPE" || grep -qi "id3" <<<"$TYPE" ); then
 		TYPE="MP3"
 	else
 		echo "$FILE doesn't look like a supported file." >&2
@@ -78,7 +78,7 @@ for FILE in "$@"; do
 		fi
 
 		sed -i -r -n \
-			-e 's/^=== (TRCK|TPE1|TIT2|TALB|TCON|COMM) \(.+?\): (.+)$/\1=\2/p' \
+			-e 's/^=== (TRCK|TPE1|TIT2|TALB|TCON|COMM|TYER) \(.+?\): (.+)$/\1=\2/p' \
 			"$TAGFILE"
 
 		# Ugly translation needed.
@@ -87,11 +87,11 @@ for FILE in "$@"; do
 		sed -i -e 's/^TIT2=/TITLE=/' "$TAGFILE"
 		sed -i -e 's/^TALB=/ALBUM=/' "$TAGFILE"
 		sed -i -e 's/^TCON=/GENRE=/' "$TAGFILE"
-		sed -i -e 's/^COMM=/COMMENT=/' "$TAGFILE"
+		sed -i -e 's/^TYER=/YEAR=/' "$TAGFILE"
 	fi
 
 	# Fill up misssing tags.
-	for TAG in "TRACKNUMBER" "ARTIST" "TITLE" "ALBUM" "GENRE"; do
+	for TAG in "TRACKNUMBER" "ARTIST" "TITLE" "ALBUM" "GENRE" "YEAR"; do
 		if ! grep -i -q "^$TAG=" "$TAGFILE"; then
 			echo "$TAG=" >> "$TAGFILE"
 		fi
@@ -104,6 +104,12 @@ for FILE in "$@"; do
 
 	rm "$TAGFILE"
 done
+
+if [ "`du -b "$OVERALL" | awk '{ print $1 }'`" = 0 ]; then
+	echo "No tags to edit."
+	rm $OVERALL
+	exit
+fi
 
 BACKUP="`mktemp`"
 cp -f "$OVERALL" "$BACKUP"
@@ -128,6 +134,8 @@ if ! $cmp "$OVERALL" "$BACKUP" > "/dev/null"; then
 		elif [ "$LINE" = "-----" ]; then
 			if [ "$FILE" != "" ]; then
 				if [ "$TYPE" = "OGG" ]; then
+					# Do something about "YEAR" here, looks like vorbis doesn't
+					# have a field for that one.
 					$vorbiscomment -w -c "$TAGFILE" "$FILE"
 
 				elif [ "$TYPE" = "MP3" ]; then
@@ -137,7 +145,8 @@ if ! $cmp "$OVERALL" "$BACKUP" > "/dev/null"; then
 					sed -i -e 's/^TITLE=/song=/' "$TAGFILE"
 					sed -i -e 's/^ALBUM=/album=/' "$TAGFILE"
 					sed -i -e 's/^GENRE=/genre=/' "$TAGFILE"
-					sed -i -e 's/^COMMENT=/comment=/' "$TAGFILE"
+					sed -i -e 's/^YEAR=/year=/' "$TAGFILE"
+
 
 					while read TAG; do
 						KEY="${TAG%=*}"
@@ -147,13 +156,13 @@ if ! $cmp "$OVERALL" "$BACKUP" > "/dev/null"; then
 							VALUE=`id3_genre "$VALUE"`
 						fi
 
-						$id3tag -2 "--$KEY=$VALUE" "$FILE" >"/dev/null"
+						$id3tag "--$KEY=$VALUE" "$FILE" >"/dev/null"
 					done < "$TAGFILE"
 				fi
 			fi
 			echo -n "" > "$TAGFILE"
 		else
-			if grep -i -q -E '^(tracknumber|artist|title|album|genre|comment)=' <<<"$LINE"; then
+			if grep -i -q -E '^(tracknumber|artist|title|album|genre|year)=' <<<"$LINE"; then
 				echo "$LINE" >> "$TAGFILE"
 			fi
 		fi
