@@ -2,14 +2,18 @@
 vitag, Copyright (C) 2007-2009 by Jonas Kramer.
 Published under the terms of the GNU General Public License (GPL).
 
-vitag allows you to edit ID3 and Ogg Vorbis tags with your favorite text editor
-(that's where the name comes from). Usage is pretty simple. Run the script with
-any amount of MP3 and Vorbis files as parameters and use the powerful features
-of your $EDITOR to edit the tags. After saving your changes and exiting the
+vitag allows you to edit ID3, Ogg Vorbis and FLAC tags with your favorite text
+editor (thus the name). Usage is pretty simple. Run the script with any amount
+of MP3, Vorbis and FLAC files as parameters and use the powerful features of
+your $EDITOR to edit the tags. After saving your changes and exiting the
 $EDITOR the script will apply the changes to the audio files.
+
+Note on FLAC: Because of how metaflac works, some FLAC tags may get lost at the
+current state of vitag.
 
 Requirements:
 
 - vorbiscomment (comes with vorbis-tools)
 - id3tag, id3info (comes with id3lib)
 - file, mktemp, cat, cmp (UNIX core utils)
+- metaflac (comes with flac)

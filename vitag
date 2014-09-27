@@ -7,7 +7,7 @@ if [ -z "$EDITOR" ]; then
 	exit -1
 fi
 
-for PROGRAM in "vorbiscomment" "file" "mktemp" "cat" "cmp" "id3tag" "id3info"
+for PROGRAM in "vorbiscomment" "file" "mktemp" "cat" "cmp" "id3tag" "id3info" "metaflac"
 do
 	PROGPATH="`which "$PROGRAM" 2>"/dev/null"`"
 	if [ -z "$PROGPATH" ]; then
@@ -50,24 +50,35 @@ for FILE in "$@"; do
 		continue
 	fi
 
-	TYPE="`$file "$FILE"`"
+	TYPE="`$file "$FILE" | tr '[a-z]' '[A-Z]'`"
 	TYPE="${TYPE#$FILE: }"
 
 	# Determine file type (OGG Vorbis and MP3 supported).
-	if ( grep -qi "ogg" <<<"$TYPE" || grep -qi "vorbis" <<<"$TYPE" ); then
-		TYPE="OGG"
-	elif ( grep -qi "mp3" <<<"$TYPE" || grep -qi "mpeg" <<<"$TYPE" || grep -qi "id3" <<<"$TYPE" ); then
-		TYPE="MP3"
-	else
-		echo "$FILE doesn't look like a supported file." >&2
-		continue
-	fi
+	case "$TYPE" in
+		*VORBIS*)
+			TYPE='OGG'
+			;;
+		*MPEG*)
+			TYPE='MP3'
+			;;
+		*FLAC*)
+			TYPE='FLAC'
+			;;
+		*)
+			echo "$FILE doesn't look like a supported file." >&2
+			continue
+	esac
 
 	TAGFILE="`mktemp`"
 
 	# Get the tags.
 	if [ "$TYPE" = "OGG" ]; then
 		if ! $vorbiscomment -l "$FILE" > "$TAGFILE"; then
+			echo "Failed to get tags of file \"$FILE\"." >&2
+			continue
+		fi
+	elif [ "$TYPE" = 'FLAC' ]; then
+		if ! $metaflac '--export-tags-to=-' "$FILE" > "$TAGFILE"; then
 			echo "Failed to get tags of file \"$FILE\"." >&2
 			continue
 		fi
@@ -138,6 +149,9 @@ if ! $cmp "$OVERALL" "$BACKUP" > "/dev/null"; then
 					# have a field for that one.
 					$vorbiscomment -w -c "$TAGFILE" "$FILE"
 
+				elif [ "$TYPE" = 'FLAC' ]; then
+					$metaflac '--remove-all-tags' "--import-tags-from=$TAGFILE" "$FILE"
+
 				elif [ "$TYPE" = "MP3" ]; then
 					# Ugly...
 					sed -i -e 's/^TRACKNUMBER=/track=/' "$TAGFILE"
@@ -146,7 +160,6 @@ if ! $cmp "$OVERALL" "$BACKUP" > "/dev/null"; then
 					sed -i -e 's/^ALBUM=/album=/' "$TAGFILE"
 					sed -i -e 's/^GENRE=/genre=/' "$TAGFILE"
 					sed -i -e 's/^YEAR=/year=/' "$TAGFILE"
-
 
 					while read TAG; do
 						KEY="${TAG%=*}"
